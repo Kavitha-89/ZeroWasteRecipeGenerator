@@ -2,35 +2,35 @@ import streamlit as st
 import requests
 import io
 from PIL import Image
+import numpy as np
+from ultralytics import YOLO
 
-# ------- CONFIGURATION --------
-# Replace with your actual Roboflow model details and key
-ROBOFLOW_API_URL = "https://detect.roboflow.com/ingredient-j9nuw/1"
-ROBOFLOW_API_KEY = "rf_ZEnnB5bWiOQAXdSJqnTKsh2Q8QB3"
+# Load YOLOv8 model once on app start
+model = YOLO('yolov8n.pt')  # feel free to change to yolov8m.pt or your own custom weights
 
-# Replace with your actual Spoonacular key
+# Spoonacular API key - replace with your actual key
 SPOONACULAR_API_KEY = "65866a9aa0624f5db8fd64db4097d235"
 
-# ------- APP TITLE AND UI --------
 st.title("Zero Waste Recipe Generator")
 
 input_method = st.radio("Choose input method:", ("Upload Image", "Type Ingredients"))
 
-# ------- INGREDIENT DETECTION CODE --------
+# Function to detect ingredients using YOLOv8 model locally
 def detect_ingredients(image_bytes):
-    response = requests.post(
-        ROBOFLOW_API_URL,
-        params={"api_key": ROBOFLOW_API_KEY},
-        files={"file": image_bytes},
-        headers={"accept": "application/json"}
-    )
-    try:
-        result = response.json()
-        return list({pred['class'] for pred in result.get("predictions", [])})
-    except Exception:
-        return []
+    img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    img_np = np.array(img)
+    
+    results = model(img_np)
+    
+    classes = set()
+    for result in results:
+        for c in result.boxes.cls:
+            class_id = int(c)
+            class_name = model.names[class_id]  # Access class names from model
+            classes.add(class_name)
+    return list(classes)
 
-# ------- RECIPE FETCHING CODE --------
+# Function to fetch recipes from the Spoonacular API based on ingredients
 def fetch_recipes(ingredients):
     url = "https://api.spoonacular.com/recipes/findByIngredients"
     params = {
@@ -46,7 +46,6 @@ def fetch_recipes(ingredients):
         pass
     return []
 
-# ------- MAIN FLOW --------
 detected_ingredients = []
 
 if input_method == "Upload Image":
@@ -66,7 +65,6 @@ elif input_method == "Type Ingredients":
         detected_ingredients = [i.strip() for i in raw.split(",") if i.strip()]
         st.write("Entered Ingredients:", detected_ingredients)
 
-# ------- RECIPE GENERATION & DISPLAY --------
 if detected_ingredients:
     st.info("Searching for recipes...")
     recipes = fetch_recipes(detected_ingredients)
